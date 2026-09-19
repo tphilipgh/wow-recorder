@@ -13,7 +13,7 @@ port needs, how to build it, and what is not done yet.
 | Audio capture | Mic via CoreAudio, desktop and app audio via ScreenCaptureKit. |
 | Video encoding | VideoToolbox H.264 and HEVC, x264 software fallback. |
 | Log parsing, UI, video library | Unchanged. These were already portable. |
-| Preview | Renders into an NSView. See the caveat below. |
+| Preview | Working. Renders into an NSView above the web contents. |
 | Code signing and notarisation | Not set up. |
 
 ## Building
@@ -138,6 +138,18 @@ empty. The window is frameless and draws its own title bar, so when that
 happens there is no close button either. Do the platform branch in a file the
 renderer never touches.
 
+**The preview view must sit above the web contents.** It is added to the
+Electron content view with `addSubview:positioned:NSWindowAbove`. Electron's
+web contents fill the window and paint an opaque background, so a preview added
+below them renders every frame but is never visible, with no error anywhere to
+explain it. The renderer leaves a gap where the preview belongs, the same way
+the child HWND arrangement works on Windows.
+
+libobs-opengl attaches an `NSOpenGLContext` to that view, which does not work
+with layer backed views, so the subview opts out of layer backing even though
+Electron's content view uses it. `create_preview_surface` logs the resulting
+state on startup if this ever needs rechecking.
+
 **Running the production bundle unpackaged.** `electron ./release/app` resolves
 the preload and the tray icon relative to `release/app`, which only exist there
 once packaged. Use `npm start`, or symlink `release/app/.erb` and
@@ -145,12 +157,6 @@ once packaged. Use `npm start`, or symlink `release/app/.erb` and
 
 ## Known gaps
 
-- **Preview.** libobs-opengl attaches an `NSOpenGLContext` to the view, which
-  does not work with layer backed views. Electron's content view is layer
-  backed, so the preview subview explicitly opts out. This is still untested:
-  recording works, but nothing has yet confirmed the preview in the scene
-  editor actually renders. If it comes up black, the fallback is a separate
-  child `NSWindow`.
 - **ffmpeg binary** is not packaged, as above.
 - **Code signing and notarisation** are not configured. Unsigned builds will be
   blocked by Gatekeeper unless the user explicitly allows them.
