@@ -42,6 +42,8 @@ import {
 } from 'localisation/translations';
 import { VideoCategory } from '../types/VideoCategory';
 import { setConfigValue } from './useSettings';
+import { cn } from './components/utils';
+import { isMac } from './platform';
 import { getCategoryIndex } from './rendererutils';
 import Menu from './components/Menu';
 import Separator from './components/Separator/Separator';
@@ -314,7 +316,14 @@ const SideMenu = (props: IProps) => {
   const raidsIcon = <FontAwesomeIcon icon={faDragon} size="lg" />;
 
   return (
-    <div className="flex flex-col h-full bg-background w-80 px-4 items-center pt-4 pb-2">
+    <div
+      className={cn(
+        'flex flex-col h-full bg-background w-80 px-4 items-center pb-2',
+        // The native macOS window controls sit over the top left of the
+        // window, so start below them rather than the usual 16px.
+        isMac ? 'pt-10' : 'pt-4',
+      )}
+    >
       <ApplicationStatusCard
         recorderStatus={recorderStatus}
         activityStatus={activityStatus}

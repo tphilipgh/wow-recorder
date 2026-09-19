@@ -55,6 +55,11 @@ export type Channels =
   | 'refreshCloudGuilds';
 
 contextBridge.exposeInMainWorld('electron', {
+  // The renderer cannot read process.platform itself, but it needs to know
+  // the platform to match the native window chrome. Sandboxed preload scripts
+  // still get a process object carrying platform.
+  platform: process.platform,
+
   ipcRenderer: {
     sendMessage(channel: Channels, args: unknown[]) {
       ipcRenderer.send(channel, args);

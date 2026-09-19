@@ -1,6 +1,7 @@
 import { ComponentProps } from 'react';
 import { cn } from './components/utils';
 import icon from '../../assets/icon.png';
+import { isMac } from './platform';
 
 const ipc = window.electron.ipcRenderer;
 
@@ -35,6 +36,19 @@ export default function RendererTitleBar() {
       </button>
     );
   };
+
+  if (isMac) {
+    // macOS keeps its own title bar controls, drawn over this strip by the
+    // window server. Leaving it empty gives them somewhere to sit, keeps the
+    // window draggable, and preserves the 32px offset the pages already
+    // account for.
+    return (
+      <div
+        id="title-bar"
+        className="w-full h-[32px] bg-background absolute top-0 left-0"
+      />
+    );
+  }
 
   return (
     <div

@@ -25,6 +25,11 @@ import {
   runFirstTimeSetupActionsNoObs,
   createDiagsBundle,
 } from './util';
+import { isMac } from './platform';
+
+// Set once a genuine quit is underway, so the close handler below can tell a
+// window close apart from the app shutting down.
+let isQuitting = false;
 import { OurDisplayType, SoundAlerts, VideoPlayerSettings } from './types';
 import ConfigService from '../config/ConfigService';
 import Manager from './Manager';
@@ -189,7 +194,17 @@ const createWindow = async () => {
     height: 1020 * 0.9,
     width: 1980 * 0.8,
     icon: getAssetPath('./icon/small-icon.png'),
-    frame: false,
+    // On macOS keep the native window controls, which users expect to find in
+    // the top left, and just hide the title bar itself so our own title bar
+    // can occupy the same strip. Elsewhere the window is fully frameless and
+    // the renderer draws its own controls.
+    ...(isMac
+      ? {
+          titleBarStyle: 'hidden' as const,
+          // Centre the traffic lights in our 32px title bar.
+          trafficLightPosition: { x: 12, y: 9 },
+        }
+      : { frame: false }),
     title: `Warcraft Recorder v${appVersion}`,
     webPreferences: {
       sandbox: true, // Good security practice.
@@ -201,6 +216,21 @@ const createWindow = async () => {
 
   // Prevent Windows from opening the native window menu on draggable regions.
   window.on('system-context-menu', (event) => event.preventDefault());
+
+  // The renderer's own quit button honours minimizeOnQuit. On macOS the close
+  // button is the native one and bypasses that, so apply the same preference
+  // here. A real quit, from Cmd+Q or the tray, sets isQuitting and passes
+  // straight through.
+  window.on('close', (event) => {
+    if (isQuitting || !cfg.get<boolean>('minimizeOnQuit')) {
+      return;
+    }
+
+    console.info('[Main] Hiding main window instead of closing');
+    event.preventDefault();
+    window?.webContents.send('pausePlayer');
+    window?.hide();
+  });
 
   // We need to do this AFTER creating the window as it's used by the preview.
   Recorder.getInstance().initializeObs();
@@ -503,6 +533,7 @@ app.on('window-all-closed', async () => {
  */
 app.on('before-quit', () => {
   console.info('[Main] Running before-quit actions');
+  isQuitting = true;
 
   if (tray) {
     console.info('[Main] Destroy tray icon');
