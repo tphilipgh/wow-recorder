@@ -380,8 +380,24 @@ export default class Recorder extends EventEmitter {
       'createAudioSource',
       (_event, id: string, type: AudioSourceType) => {
         console.info('[Manager] Creating audio source', id, 'of type', type);
-        const name = noobs.CreateSource(id, type);
+        const name = noobs.CreateSource(id, toPlatformAudioSourceType(type));
         console.info('[Manager] Created audio source', name);
+
+        if (isMac) {
+          // Desktop and application audio are the same ScreenCaptureKit
+          // source, told apart by this setting. It has to be set now rather
+          // than at configure time, because the list of applications to pick
+          // from is empty until the source is in application mode.
+          const settings = noobs.GetSourceSettings(name);
+
+          settings['type'] =
+            type === AudioSourceType.PROCESS
+              ? SckAudioType.APPLICATION
+              : SckAudioType.DESKTOP;
+
+          noobs.SetSourceSettings(name, settings);
+        }
+
         this.configureAudioSourceTracks(name, defaultAudioTrack);
         noobs.AddSourceToScene(name);
         this.audioSources.push({
@@ -428,8 +444,17 @@ export default class Recorder extends EventEmitter {
         value,
       );
       const settings = noobs.GetSourceSettings(id);
-      settings['window'] = value;
-      settings['priority'] = 2; // Executable matching
+
+      if (isMac) {
+        // ScreenCaptureKit picks an application by bundle id. There is no
+        // window to match against and no matching priority to set.
+        settings['type'] = SckAudioType.APPLICATION;
+        settings['application'] = value;
+      } else {
+        settings['window'] = value;
+        settings['priority'] = 2; // Executable matching
+      }
+
       noobs.SetSourceSettings(id, settings);
     });
 
