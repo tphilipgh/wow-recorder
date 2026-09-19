@@ -23,6 +23,7 @@ import {
   getPTTKeyPressEventFromConfig,
 } from './rendererutils';
 import { PTTKeyPressEvent, UiohookKeyMap } from '../types/KeyTypesUIOHook';
+import { isMac } from './platform';
 import Label from './components/Label/Label';
 import { Tooltip } from './components/Tooltip/Tooltip';
 import Slider from './components/Slider/Slider';
@@ -513,6 +514,18 @@ const AudioSourceControls = (props: IProps) => {
     if (typeof src.device === 'number') {
       // Stupid typeguard. This can't happen.
       return <></>;
+    }
+
+    if (isMac && src.type === AudioSourceType.OUTPUT) {
+      // Desktop audio on macOS comes from ScreenCaptureKit, which always
+      // captures everything the system plays. There is no output device to
+      // choose between, so say so rather than showing an empty dropdown that
+      // reports the saved device as unknown.
+      return (
+        <div className="w-[500px] text-sm text-foreground-lighter italic">
+          {getLocalePhrase(language, Phrase.MacDesktopAudioDescription)}
+        </div>
+      );
     }
 
     const choices: ObsListItem[] = [];

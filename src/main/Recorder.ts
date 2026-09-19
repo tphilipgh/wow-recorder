@@ -64,6 +64,7 @@ import {
   captureSourceType,
   toPlatformAudioSourceType,
   SckStreamType,
+  SckAudioType,
   WOW_BUNDLE_ID,
 } from './platform';
 
@@ -688,11 +689,86 @@ export default class Recorder extends EventEmitter {
         break;
 
       default:
+        if (Recorder.isVideoToolboxEncoder(encoder)) {
+          if (Recorder.isHardwareVideoToolboxEncoder(encoder)) {
+            // Constant quality, the closest match to how the other encoders
+            // are configured. VideoToolbox only offers it for hardware
+            // encoders on Apple silicon.
+            settings.rate_control = 'CRF';
+            settings.quality = Recorder.getVideoToolboxQuality(quality);
+          } else {
+            // Software VideoToolbox has no constant quality mode, so the best
+            // we can do is average bitrate.
+            settings.rate_control = 'ABR';
+            settings.bitrate = Recorder.getVideoToolboxBitrate(quality);
+          }
+
+          break;
+        }
+
         console.error('[Recorder] Unrecognised encoder type', encoder);
         throw new Error('Unrecognised encoder type');
     }
 
     return settings;
+  }
+
+  /**
+   * VideoToolbox encoder ids come from the OS rather than being fixed, so
+   * match on the prefix Apple uses rather than listing them.
+   */
+  private static isVideoToolboxEncoder(encoder: string) {
+    return encoder.startsWith('com.apple.videotoolbox.videoencoder.');
+  }
+
+  /**
+   * Whether a VideoToolbox encoder is hardware accelerated. On Apple silicon
+   * the hardware encoders are the Apple Video Encoder ones, identified by an
+   * "ave" segment. Intel Macs expose theirs with a "gva" segment instead.
+   */
+  private static isHardwareVideoToolboxEncoder(encoder: string) {
+    return encoder.includes('.ave.') || encoder.includes('.gva');
+  }
+
+  /**
+   * Map a quality preset onto the VideoToolbox quality scale, which runs from
+   * 0 to 100 with higher being better. That is the opposite direction to the
+   * CQP and CRF scales the other encoders use.
+   */
+  private static getVideoToolboxQuality(quality: string) {
+    switch (quality) {
+      case QualityPresets.ULTRA:
+        return 80;
+      case QualityPresets.HIGH:
+        return 70;
+      case QualityPresets.MODERATE:
+        return 60;
+      case QualityPresets.LOW:
+        return 50;
+      default:
+        console.error('[Recorder] Unrecognised quality', quality);
+        throw new Error('Unrecognised quality');
+    }
+  }
+
+  /**
+   * Bitrate in kbps for the software VideoToolbox encoders, which have no
+   * constant quality mode.
+   */
+  private static getVideoToolboxBitrate(quality: string) {
+    switch (quality) {
+      case QualityPresets.ULTRA:
+        return 30000;
+      case QualityPresets.HIGH:
+        return 20000;
+      case QualityPresets.MODERATE:
+        return 12000;
+      case QualityPresets.LOW:
+        return 8000;
+      default:
+        console.error('[Recorder] Unrecognised quality', quality);
+        throw new Error('Unrecognised quality');
+    }
   }
 
   /**
@@ -847,6 +923,32 @@ export default class Recorder extends EventEmitter {
       );
       console.info('[Recorder] Created audio source', name);
       const settings = noobs.GetSourceSettings(name);
+
+      if (
+        isMac &&
+        (src.type === AudioSourceType.OUTPUT ||
+          src.type === AudioSourceType.PROCESS)
+      ) {
+        // Both of these are sck_audio_capture on macOS, which tells them
+        // apart with its own 'type' setting rather than by device. Desktop
+        // capture takes all system audio and has nothing else to configure;
+        // application capture needs the bundle id of the app to listen to.
+        settings['type'] =
+          src.type === AudioSourceType.PROCESS
+            ? SckAudioType.APPLICATION
+            : SckAudioType.DESKTOP;
+
+        if (src.type === AudioSourceType.PROCESS && src.device) {
+          settings['application'] = src.device;
+        }
+
+        noobs.SetSourceSettings(name, settings);
+        noobs.SetSourceVolume(name, src.volume);
+        this.configureAudioSourceTracks(name, src.tracks ?? defaultAudioTrack);
+        noobs.AddSourceToScene(name);
+        this.audioSources.push({ ...src, id: name });
+        return;
+      }
 
       if (src.type === AudioSourceType.PROCESS && src.device) {
         settings['window'] = src.device;
@@ -1965,6 +2067,29 @@ export default class Recorder extends EventEmitter {
   public getSensibleEncoderDefault() {
     const encoders = this.getAvailableEncoders();
     const highRes = isHighRes(this.resolution);
+
+    if (isMac) {
+      // Prefer VideoToolbox, which is the only hardware encoding available on
+      // a Mac. This is checked before the high resolution case below: the
+      // reason that falls back to software is that the Windows hardware
+      // encoders can struggle at high resolutions, whereas VideoToolbox
+      // handles them comfortably and x264 on a Mac would not keep up.
+      const hardware = encoders
+        .filter(Recorder.isVideoToolboxEncoder)
+        .filter(Recorder.isHardwareVideoToolboxEncoder);
+
+      // H.264 ahead of HEVC for the widest compatibility with players and
+      // with the upload pipeline.
+      const h264 = hardware.find((e) => e.includes('avc') || e.includes('h264'));
+
+      if (h264) {
+        return h264;
+      }
+
+      if (hardware.length > 0) {
+        return hardware[0];
+      }
+    }
 
     if (highRes) {
       // Just go for the software encoder if high res.

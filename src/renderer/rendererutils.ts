@@ -1098,7 +1098,12 @@ const getAudioSourceChoices = async (src: AudioSource) => {
   const properties = await ipc.getAudioSourceProperties(src.id);
 
   const devices = properties.find(
-    (prop) => prop.name === 'device_id' || prop.name === 'window',
+    (prop) =>
+      prop.name === 'device_id' ||
+      prop.name === 'window' ||
+      // ScreenCaptureKit application audio on macOS, where the choice is an
+      // application bundle id rather than a device or a window.
+      prop.name === 'application',
   );
 
   if (!devices || devices.type !== 'list') {

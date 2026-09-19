@@ -582,6 +582,8 @@ const ENGLISH: Translations = {
   [Phrase.LatestCombatLogFileDayOld]: '1 day old',
   [Phrase.LatestCombatLogFileDaysOld]: 'days old',
   [Phrase.LatestCombatLogFileLessThanADayOld]: 'less than a day old',
+  [Phrase.MacDesktopAudioDescription]:
+    'Captures all system audio. macOS has no output device to choose between.',
 };
 
 export default ENGLISH;

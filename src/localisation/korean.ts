@@ -582,7 +582,9 @@ const KOREAN: Translations = {
   [Phrase.LatestCombatLogFileOverAMonthOld]: '한 달 이상 지남',
   [Phrase.LatestCombatLogFileDayOld]: '1일 지남',
   [Phrase.LatestCombatLogFileDaysOld]: '일 지남',
-  [Phrase.LatestCombatLogFileLessThanADayOld]: '하루 미만 지남'
+  [Phrase.LatestCombatLogFileLessThanADayOld]: '하루 미만 지남',
+  [Phrase.MacDesktopAudioDescription]:
+    'Captures all system audio. macOS has no output device to choose between.',
 };
 
 export default KOREAN;

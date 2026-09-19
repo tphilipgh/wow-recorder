@@ -126,13 +126,35 @@ through the single ScreenCaptureKit `screen_capture` source and differ only by
 its `type` setting: display, window, or application. Game capture targets WoW
 by bundle identifier, `com.blizzard.worldofwarcraft`.
 
-**Audio.** There is no loopback device on macOS. Desktop audio and per
-application audio both come from `sck_audio_capture`, which needs macOS 13.
-Microphone input uses `coreaudio_input_capture`.
+**Audio.** There is no loopback device on macOS: `coreaudio_output_capture`
+exists but enumerates zero devices without a virtual audio driver installed.
+Desktop audio and per application audio therefore both come from
+`sck_audio_capture`, which needs macOS 13 and distinguishes the two with its
+own `type` setting rather than by device. Desktop capture takes all system
+audio and has nothing to choose, which is why the UI shows a note there instead
+of a device dropdown. Application capture picks an app by bundle id.
+
+Microphone input uses `coreaudio_input_capture` and does enumerate real
+devices, so mic selection works normally.
 
 Audio source types are still stored in config using their Windows WASAPI ids so
 that configs stay portable, and are translated at the point the source is
 created. See `toPlatformAudioSourceType` in `src/main/platform.ts`.
+
+**Encoding.** VideoToolbox is the hardware encoder on macOS, the equivalent of
+NVENC or AMF on Windows. Its encoder ids come from the OS rather than being
+fixed, so they are matched on the `com.apple.videotoolbox.videoencoder.` prefix,
+and the hardware ones are identified by an `ave` segment on Apple silicon or
+`gva` on Intel. Hardware encoders on Apple silicon support a constant quality
+mode, CRF, which is the closest match to the CQP the Windows hardware encoders
+use; the software ones only do average bitrate. Note VideoToolbox quality runs
+0 to 100 with higher being better, the opposite direction to CQP and CRF
+elsewhere.
+
+Unlike Windows, hardware encoding is preferred even at high resolution.
+That fallback to software exists because the Windows hardware encoders can
+struggle there, whereas VideoToolbox handles it comfortably and x264 on a Mac
+would not keep up.
 
 **Process detection.** Windows shells out to a bundled `rust-ps.exe`. macOS
 polls `ps` and matches on the flavour directory in the process path, which

@@ -583,6 +583,8 @@ const CHINESE_SIMPLIFIED: Translations = {
   [Phrase.LatestCombatLogFileDayOld]: '1天前',
   [Phrase.LatestCombatLogFileDaysOld]: '天前',
   [Phrase.LatestCombatLogFileLessThanADayOld]: '不到一天前',
+  [Phrase.MacDesktopAudioDescription]:
+    'Captures all system audio. macOS has no output device to choose between.',
 };
 
 export default CHINESE_SIMPLIFIED;

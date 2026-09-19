@@ -580,6 +580,7 @@ enum Phrase {
   LatestCombatLogFileDayOld,
   LatestCombatLogFileDaysOld,
   LatestCombatLogFileLessThanADayOld,
+  MacDesktopAudioDescription,
 }
 
 enum Language {

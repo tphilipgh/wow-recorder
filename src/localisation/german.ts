@@ -582,7 +582,9 @@ const GERMAN: Translations = {
   [Phrase.LatestCombatLogFileOverAMonthOld]: 'über einen Monat alt',
   [Phrase.LatestCombatLogFileDayOld]: '1 Tag alt',
   [Phrase.LatestCombatLogFileDaysOld]: 'Tage alt',
-  [Phrase.LatestCombatLogFileLessThanADayOld]: 'weniger als einen Tag alt'
+  [Phrase.LatestCombatLogFileLessThanADayOld]: 'weniger als einen Tag alt',
+  [Phrase.MacDesktopAudioDescription]:
+    'Captures all system audio. macOS has no output device to choose between.',
 };
 
 export default GERMAN;

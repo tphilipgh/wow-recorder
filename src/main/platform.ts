@@ -85,6 +85,14 @@ enum SckStreamType {
 const WOW_BUNDLE_ID = 'com.blizzard.worldofwarcraft';
 
 /**
+ * Values for the ScreenCaptureKit audio source's 'type' setting.
+ */
+enum SckAudioType {
+  DESKTOP = 0,
+  APPLICATION = 1,
+}
+
+/**
  * Translate the audio source type stored in config, which is always the
  * Windows WASAPI id so that configs stay portable, into the libobs source
  * type id for this platform.
@@ -109,5 +117,6 @@ export {
   captureSourceType,
   toPlatformAudioSourceType,
   SckStreamType,
+  SckAudioType,
   WOW_BUNDLE_ID,
 };
