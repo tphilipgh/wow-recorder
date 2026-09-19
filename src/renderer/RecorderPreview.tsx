@@ -10,8 +10,21 @@ import {
 import { ConfigurationSchema } from 'config/configSchema';
 import { getLocalePhrase } from 'localisation/translations';
 import { Phrase } from 'localisation/phrases';
+import { isMac } from './platform';
 
 const ipc = window.electron.ipcRenderer;
+
+/**
+ * Scale between CSS pixels and the coordinate space the native preview
+ * surface uses.
+ *
+ * On Windows the preview is a child window, and Win32 works in physical
+ * pixels, so display scaling has to be applied. On macOS it is an NSView, and
+ * AppKit works in points, which are the same as CSS pixels, so applying the
+ * device pixel ratio there would double every coordinate on a Retina display
+ * and send the preview far outside its intended bounds.
+ */
+const getPreviewScaleFactor = () => (isMac ? 1 : window.devicePixelRatio);
 const showPreview = ipc.showPreview;
 const hidePreview = ipc.hidePreview;
 const disablePreview = ipc.disablePreview;
@@ -206,7 +219,7 @@ const RecorderPreview = (props: {
   };
 
   const configurePreview = async () => {
-    const zoomFactor = window.devicePixelRatio; // Windows display scaling.
+    const zoomFactor = getPreviewScaleFactor();
 
     if (previewDivRef.current) {
       const { width, height, x, y } =
@@ -240,7 +253,7 @@ const RecorderPreview = (props: {
   }, []);
 
   const onSourceMove = (event: MouseEvent, src: SceneItem) => {
-    const zoomFactor = window.devicePixelRatio;
+    const zoomFactor = getPreviewScaleFactor();
 
     const fn =
       src === SceneItem.OVERLAY
@@ -286,7 +299,7 @@ const RecorderPreview = (props: {
   };
 
   const onSourceScale = (event: MouseEvent, src: SceneItem) => {
-    const zoomFactor = window.devicePixelRatio;
+    const zoomFactor = getPreviewScaleFactor();
 
     const fn =
       src === SceneItem.OVERLAY
@@ -423,8 +436,7 @@ const RecorderPreview = (props: {
       position.top = y + yCorr;
     }
 
-    // Handle windows display scaling.
-    const zoomFactor = window.devicePixelRatio;
+    const zoomFactor = getPreviewScaleFactor();
     position.left = position.left / zoomFactor;
     position.top = position.top / zoomFactor;
 

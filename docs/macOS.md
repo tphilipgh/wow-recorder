@@ -150,6 +150,17 @@ with layer backed views, so the subview opts out of layer backing even though
 Electron's content view uses it. `create_preview_surface` logs the resulting
 state on startup if this ever needs rechecking.
 
+**Preview geometry is in points, not pixels.** The renderer scales the preview
+rect by `window.devicePixelRatio` because a Win32 child window works in
+physical pixels. AppKit works in points, which are the same as CSS pixels, so
+on macOS the factor is 1. Applying the ratio there doubles every coordinate on
+a Retina display, and the preview spills far outside its bounds and paints over
+the rest of the UI. See `getPreviewScaleFactor` in `RecorderPreview.tsx`.
+
+Note this only misbehaves on a Retina display. On a 1x external monitor the
+ratio is 1 and the bug is invisible, so test preview geometry on the built in
+display.
+
 **Running the production bundle unpackaged.** `electron ./release/app` resolves
 the preload and the tray icon relative to `release/app`, which only exist there
 once packaged. Use `npm start`, or symlink `release/app/.erb` and
