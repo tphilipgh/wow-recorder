@@ -9,6 +9,7 @@ import {
   Menu,
   clipboard,
   protocol,
+  systemPreferences,
 } from 'electron';
 import os from 'os';
 import { uIOhook } from 'uiohook-napi';
@@ -30,6 +31,10 @@ import { isMac } from './platform';
 // Set once a genuine quit is underway, so the close handler below can tell a
 // window close apart from the app shutting down.
 let isQuitting = false;
+
+// Whether the global input hook actually started. It is skipped on macOS when
+// the app is not a trusted accessibility client.
+let inputHookStarted = false;
 import { OurDisplayType, SoundAlerts, VideoPlayerSettings } from './types';
 import ConfigService from '../config/ConfigService';
 import Manager from './Manager';
@@ -305,11 +310,63 @@ const createWindow = async () => {
     return { action: 'deny' };
   });
 
-  uIOhook.start();
+  if (isMac) {
+    // Capture goes through ScreenCaptureKit, which is gated by TCC. Without
+    // permission libobs cannot start a capture source and cannot even list
+    // its properties, so say so plainly rather than leaving the user with an
+    // empty preview and no explanation. macOS only shows the prompt itself on
+    // the first capture attempt, and the app has to be restarted after it is
+    // granted.
+    const access = systemPreferences.getMediaAccessStatus('screen');
+    console.info('[Main] Screen recording access:', access);
 
-  // Runs the auto-updater, which checks GitHub for new releases
-  // and will prompt the user if any are available.
-  new AppUpdater(window);
+    if (access !== 'granted') {
+      console.warn(
+        '[Main] Screen recording permission not granted. Capture and the',
+        'preview will not work until it is enabled under System Settings >',
+        'Privacy & Security > Screen Recording, followed by a restart.',
+      );
+    }
+  }
+
+  // Global key and mouse capture, used only for push to talk. On macOS this
+  // installs an event tap, which needs Accessibility permission. uiohook does
+  // not fail gracefully without it: it calls abort() from its worker thread
+  // and takes the whole process down, which no try/catch can prevent. So check
+  // first and simply go without the hook if we are not trusted.
+  const canUseInputHook =
+    !isMac || systemPreferences.isTrustedAccessibilityClient(false);
+
+  if (canUseInputHook) {
+    try {
+      uIOhook.start();
+      inputHookStarted = true;
+    } catch (error) {
+      console.warn('[Main] Failed to start input hook', String(error));
+    }
+  } else {
+    console.warn(
+      '[Main] Skipping input hook, Accessibility permission not granted.',
+      'Push to talk will not work until it is enabled under System Settings >',
+      'Privacy & Security > Accessibility, followed by a restart.',
+    );
+
+    if (cfg.get<boolean>('pushToTalk')) {
+      // Push to talk is switched on, so the user wants this. Ask for it,
+      // which is the only way the prompt appears now we do not call start().
+      systemPreferences.isTrustedAccessibilityClient(true);
+    }
+  }
+
+  if (isMac) {
+    // There are no macOS releases published, so the updater would only find
+    // Windows artifacts and fail on every check.
+    console.info('[Main] Auto-update is not supported on macOS yet');
+  } else {
+    // Runs the auto-updater, which checks GitHub for new releases
+    // and will prompt the user if any are available.
+    new AppUpdater(window);
+  }
 };
 
 /**
@@ -542,7 +599,10 @@ app.on('before-quit', () => {
   }
 
   Poller.getInstance().stop();
-  uIOhook.stop();
+
+  if (inputHookStarted) {
+    uIOhook.stop();
+  }
   Recorder.getInstance().shutdownOBS();
 });
 

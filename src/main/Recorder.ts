@@ -853,7 +853,22 @@ export default class Recorder extends EventEmitter {
         settings['priority'] = 2; // Executable matching
         noobs.SetSourceSettings(name, settings);
       } else if (src.type !== AudioSourceType.PROCESS) {
-        const properties = noobs.GetSourceProperties(name);
+        let properties: ReturnType<typeof noobs.GetSourceProperties> = [];
+
+        try {
+          properties = noobs.GetSourceProperties(name);
+        } catch (error) {
+          // libobs refuses to describe a source it could not start. On macOS
+          // that happens for ScreenCaptureKit sources before the user has
+          // granted Screen Recording permission. Carry on without a device
+          // list rather than failing the whole audio setup.
+          console.warn(
+            '[Recorder] Could not read properties for audio source',
+            name,
+            String(error),
+          );
+        }
+
         const available = properties.find((prop) => prop.name === 'device_id');
 
         if (!available || available.type !== 'list') {

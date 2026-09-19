@@ -29,7 +29,7 @@ import ffmpeg from 'fluent-ffmpeg';
 import axios from 'axios';
 import DiskClient from 'storage/DiskClient';
 import Recorder from './Recorder';
-import { promises as fspromise } from 'fs';
+import { existsSync, promises as fspromise } from 'fs';
 import { ffmpegBinaryName } from './platform';
 
 const atomicQueue = require('atomic-queue');
@@ -45,7 +45,35 @@ let ffmpegPathAbs = devMode
   : path.resolve(__dirname, '../../', ffmpegPathRel);
 
 ffmpegPathAbs = fixPathWhenPackaged(ffmpegPathAbs);
-ffmpeg.setFfmpegPath(ffmpegPathAbs);
+
+if (existsSync(ffmpegPathAbs)) {
+  ffmpeg.setFfmpegPath(ffmpegPathAbs);
+} else {
+  // The macOS obs-deps do not ship the ffmpeg command line tools, only the
+  // libraries, so there is nothing to point at. Fall back to a copy on the
+  // system. A GUI app launched from Finder does not inherit the user's shell
+  // PATH, so check the usual install locations directly before giving up and
+  // letting fluent-ffmpeg search PATH itself.
+  const candidates = [
+    '/opt/homebrew/bin/ffmpeg', // Homebrew on Apple silicon.
+    '/usr/local/bin/ffmpeg', // Homebrew on Intel, and manual installs.
+    '/opt/local/bin/ffmpeg', // MacPorts.
+  ];
+
+  const fallback = candidates.find(existsSync);
+
+  if (fallback) {
+    console.info('[VideoProcessQueue] Using system ffmpeg at', fallback);
+    ffmpeg.setFfmpegPath(fallback);
+  } else {
+    console.warn(
+      '[VideoProcessQueue] No ffmpeg found at',
+      ffmpegPathAbs,
+      'or any known system location. Video cutting will fail until ffmpeg is',
+      'installed, e.g. brew install ffmpeg.',
+    );
+  }
+}
 
 /**
  * A queue for cutting videos to size.

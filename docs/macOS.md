@@ -92,11 +92,27 @@ system Node and will fail to load.
 
 ## Permissions
 
-macOS gates capture behind TCC. On first record the app will prompt for Screen
-Recording, and for Microphone if a mic source is configured. Screen Recording
-cannot be granted programmatically; if the prompt is dismissed the user has to
-enable it under System Settings > Privacy & Security > Screen Recording, and
-restart the app.
+macOS gates capture behind TCC, and the app needs three separate grants. Each
+is checked at startup and logged.
+
+**Screen Recording** is required for any capture at all, and also for desktop
+audio, which goes through ScreenCaptureKit. Without it libobs cannot start a
+capture source and cannot even list its properties. It cannot be granted
+programmatically: enable it under System Settings > Privacy & Security > Screen
+Recording and restart the app.
+
+**Microphone** is required only if a mic source is configured, and is prompted
+for normally.
+
+**Accessibility** is required only for push to talk, which installs a global
+event tap. uiohook does not degrade gracefully without it: it calls abort()
+from its worker thread and takes the process down, which no try/catch can
+prevent. So the hook is skipped unless the app is already a trusted
+accessibility client, and the prompt is only raised when push to talk is
+actually switched on. Everything except push to talk works without it.
+
+Note that a grant is tied to the built app. Rebuilding the .app can invalidate
+it, and it will need granting again.
 
 `assets/entitlements.mac.plist` carries the hardened runtime entitlements.
 Library validation is disabled there because libobs and its plugins are loaded
@@ -161,6 +177,11 @@ Note this only misbehaves on a Retina display. On a 1x external monitor the
 ratio is 1 and the bug is invisible, so test preview geometry on the built in
 display.
 
+**asarUnpack must not use a Windows style glob.** It was `**\**`, where the
+backslash is an escape character in the matcher, so on macOS it unpacked
+nothing and libobs, its plugins and the addon could not be loaded out of the
+asar. It is now `**/*`, which behaves the same on both platforms.
+
 **Running the production bundle unpackaged.** `electron ./release/app` resolves
 the preload and the tray icon relative to `release/app`, which only exist there
 once packaged. Use `npm start`, or symlink `release/app/.erb` and
@@ -168,10 +189,13 @@ once packaged. Use `npm start`, or symlink `release/app/.erb` and
 
 ## Known gaps
 
-- **ffmpeg binary** is not packaged, as above.
+- **ffmpeg binary** is not packaged. The app falls back to a system install,
+  checking the usual Homebrew and MacPorts locations, because a GUI app does
+  not inherit the shell PATH. Without one, video cutting fails.
+- **Auto-update is disabled on macOS**, as there are no macOS releases to find.
+- **Builds are arm64 only.** The electron-builder target lists only arm64
+  because libobs is built for the host architecture; an Intel build needs
+  libobs built for x86_64 as well.
 - **Code signing and notarisation** are not configured. Unsigned builds will be
   blocked by Gatekeeper unless the user explicitly allows them.
-- **Universal binaries.** Everything is built for the host architecture only.
-  The `dmg` and `zip` targets list `arm64` and `x64`, but an Intel build needs
-  libobs built for `x86_64` too.
 - **`libobs-opengl` is deprecated** by Apple. OBS upstream is moving to Metal.
