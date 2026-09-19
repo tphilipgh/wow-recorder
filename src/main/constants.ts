@@ -1,6 +1,7 @@
 import { Phrase } from '../localisation/phrases';
 import { VideoCategory } from '../types/VideoCategory';
 import { ConfigurationSchemaKey } from '../config/configSchema';
+import { isWindows, getWowInstallSearchPaths } from './platform';
 
 import {
   NumberKeyToStringValueMapType,
@@ -1937,7 +1938,7 @@ const mopChallengeModesTimers: Record<number, number[]> = {
   78: [45, 22, 13], // Scarlet Monastery
 };
 
-const wowInstallSearchPaths = [
+const windowsWowInstallSearchPaths = [
   'C:\\World of Warcraft',
   'C:\\Program Files\\World of Warcraft',
   'C:\\Program Files (x86)\\World of Warcraft',
@@ -1948,6 +1949,10 @@ const wowInstallSearchPaths = [
   'E:\\Program Files\\World of Warcraft',
   'E:\\Program Files (x86)\\World of Warcraft',
 ];
+
+const wowInstallSearchPaths = isWindows
+  ? windowsWowInstallSearchPaths
+  : getWowInstallSearchPaths();
 
 // PTR dummy dome encounters. Just added these in-case we want
 // to do something with them one day. Not actually used them yet.

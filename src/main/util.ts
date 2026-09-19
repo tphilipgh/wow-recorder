@@ -6,7 +6,7 @@ import fs, {
   promises as fspromise,
   Stats,
 } from 'fs';
-import { app, Display, screen } from 'electron';
+import { app, Display, screen, shell } from 'electron';
 import {
   EventType,
   uIOhook,
@@ -36,6 +36,7 @@ import { Readable } from 'stream';
 import { ESupportedEncoders } from './obsEnums';
 import Recorder from './Recorder';
 import { exec, execFile } from 'child_process';
+import { isWindows } from './platform';
 import { specializationById, wowInstallSearchPaths } from './constants';
 import {
   getPlayerName,
@@ -315,6 +316,13 @@ const writeMetadataFile = async (videoPath: string, metadata: Metadata) => {
  * Open a folder in system explorer.
  */
 const openSystemExplorer = (filePath: string) => {
+  if (!isWindows) {
+    // Finder on macOS, and the default file manager on Linux. Both take the
+    // path as an argument rather than needing it embedded in the command.
+    shell.showItemInFolder(filePath);
+    return;
+  }
+
   const windowsPath = filePath.replace(/\//g, '\\');
   const cmd = `explorer.exe /select,"${windowsPath}"`;
   exec(cmd, () => {});
@@ -1184,7 +1192,7 @@ const runFirstTimeSetupActionsNoObs = () => {
     console.info('[Util] Attempt to first time configure retail installation');
 
     for (let i = 0; i < wowInstallSearchPaths.length; i++) {
-      const installPath = wowInstallSearchPaths[i] + '\\_retail_\\Logs';
+      const installPath = path.join(wowInstallSearchPaths[i], '_retail_', 'Logs');
       const installExists = existsSync(installPath);
 
       if (installExists) {
@@ -1203,7 +1211,7 @@ const runFirstTimeSetupActionsNoObs = () => {
     console.info('[Util] Attempt to first time configure classic installation');
 
     for (let i = 0; i < wowInstallSearchPaths.length; i++) {
-      const installPath = wowInstallSearchPaths[i] + '\\_classic_\\Logs';
+      const installPath = path.join(wowInstallSearchPaths[i], '_classic_', 'Logs');
       const installExists = existsSync(installPath);
 
       if (installExists) {

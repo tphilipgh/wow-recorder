@@ -87,6 +87,37 @@
         "nsis"
       ]
     },
+    "mac": {
+      "icon": "assets/icon.png",
+      "category": "public.app-category.video",
+      "artifactName": "WarcraftRecorder-${version}-${arch}.${ext}",
+      "darkModeSupport": true,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "assets/entitlements.mac.plist",
+      "entitlementsInherit": "assets/entitlements.mac.plist",
+      "extendInfo": {
+        "NSScreenCaptureUsageDescription": "Warcraft Recorder needs screen recording access to capture your World of Warcraft gameplay.",
+        "NSMicrophoneUsageDescription": "Warcraft Recorder needs microphone access to record your voice alongside gameplay.",
+        "NSCameraUsageDescription": "Warcraft Recorder needs camera access if you add a webcam source to your recordings."
+      },
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
     "directories": {
       "app": "release/app",
       "buildResources": "assets",

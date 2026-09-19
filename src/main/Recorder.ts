@@ -59,6 +59,13 @@ import Poller from 'utils/Poller';
 import AsyncQueue from 'utils/AsyncQueue';
 import assert from 'assert';
 import { isHighRes } from 'renderer/rendererutils';
+import {
+  isMac,
+  captureSourceType,
+  toPlatformAudioSourceType,
+  SckStreamType,
+  WOW_BUNDLE_ID,
+} from './platform';
 
 const devMode = process.env.NODE_ENV === 'development';
 const moov = Buffer.from('moov');
@@ -834,7 +841,10 @@ export default class Recorder extends EventEmitter {
       // OBS may have renamed the source if there was a naming conflict,
       // log that for posterity. Use that name going forward even if it
       // doesn't match what we asked for.
-      const name = noobs.CreateSource(src.id, src.type);
+      const name = noobs.CreateSource(
+        src.id,
+        toPlatformAudioSourceType(src.type),
+      );
       console.info('[Recorder] Created audio source', name);
       const settings = noobs.GetSourceSettings(name);
 
@@ -845,7 +855,18 @@ export default class Recorder extends EventEmitter {
       } else if (src.type !== AudioSourceType.PROCESS) {
         const properties = noobs.GetSourceProperties(name);
         const available = properties.find((prop) => prop.name === 'device_id');
-        assert(available && available.type === 'list'); // To help the compiler out.
+
+        if (!available || available.type !== 'list') {
+          // Sources that capture a fixed device have no device list to pick
+          // from. That's the case for desktop audio on macOS, which goes via
+          // ScreenCaptureKit rather than a loopback device.
+          console.info('[Recorder] Audio source has no device list', src.type);
+          noobs.SetSourceVolume(name, src.volume);
+          this.configureAudioSourceTracks(name, src.tracks ?? defaultAudioTrack);
+          noobs.AddSourceToScene(name);
+          this.audioSources.push({ ...src, id: name });
+          return;
+        }
 
         // Try to match by device ID.
         let match = available.items.find((d) => d.value === src.device);
@@ -1298,18 +1319,25 @@ export default class Recorder extends EventEmitter {
     this.captureMode = CaptureMode.WINDOW;
     this.captureSource = noobs.CreateSource(
       VideoSourceName.WINDOW,
-      'window_capture',
+      captureSourceType.window,
     );
 
     const settings = noobs.GetSourceSettings(this.captureSource);
 
     noobs.SetSourceSettings(this.captureSource, {
       ...settings,
-      capture_mode: 'window',
-      force_sdr: forceSdr,
-      cursor: captureCursor, // For some reason is named differently here.
-      method: 2,
-      compatibility: true,
+      ...(isMac
+        ? {
+            type: SckStreamType.WINDOW,
+            show_cursor: captureCursor,
+          }
+        : {
+            capture_mode: 'window',
+            force_sdr: forceSdr,
+            cursor: captureCursor, // For some reason is named differently here.
+            method: 2,
+            compatibility: true,
+          }),
     });
 
     noobs.AddSourceToScene(this.captureSource);
@@ -1343,17 +1371,27 @@ export default class Recorder extends EventEmitter {
     this.captureMode = CaptureMode.GAME;
     this.captureSource = noobs.CreateSource(
       VideoSourceName.GAME,
-      'game_capture',
+      captureSourceType.game,
     );
 
     const defaults = noobs.GetSourceSettings(this.captureSource);
 
     const settings = {
       ...defaults,
-      capture_mode: 'window',
-      force_sdr: forceSdr,
-      capture_cursor: captureCursor,
-      priority: 2,
+      // macOS has no graphics hook, so the nearest equivalent to game capture
+      // is asking ScreenCaptureKit for the game's application.
+      ...(isMac
+        ? {
+            type: SckStreamType.APPLICATION,
+            application: WOW_BUNDLE_ID,
+            show_cursor: captureCursor,
+          }
+        : {
+            capture_mode: 'window',
+            force_sdr: forceSdr,
+            capture_cursor: captureCursor,
+            priority: 2,
+          }),
     };
 
     const position = {
@@ -1390,13 +1428,16 @@ export default class Recorder extends EventEmitter {
     this.captureMode = CaptureMode.MONITOR;
     this.captureSource = noobs.CreateSource(
       VideoSourceName.MONITOR,
-      'monitor_capture',
+      captureSourceType.monitor,
     );
 
     const defaults = noobs.GetSourceSettings(this.captureSource);
     const properties = noobs.GetSourceProperties(this.captureSource);
 
-    const monitors = properties.find((p) => p.name === 'monitor_id');
+    // ScreenCaptureKit identifies displays by UUID rather than by the
+    // monitor_id that win-capture uses.
+    const monitorProperty = isMac ? 'display_uuid' : 'monitor_id';
+    const monitors = properties.find((p) => p.name === monitorProperty);
 
     if (!monitors) {
       console.error('[Recorder] No monitors found');
@@ -1432,10 +1473,18 @@ export default class Recorder extends EventEmitter {
 
     const settings = {
       ...defaults,
-      method: 0,
-      monitor_id: monitorId.value,
-      force_sdr: forceSdr,
-      capture_cursor: captureCursor,
+      ...(isMac
+        ? {
+            type: SckStreamType.DISPLAY,
+            display_uuid: monitorId.value,
+            show_cursor: captureCursor,
+          }
+        : {
+            method: 0,
+            monitor_id: monitorId.value,
+            force_sdr: forceSdr,
+            capture_cursor: captureCursor,
+          }),
     };
 
     const position: SceneItemPosition = {

@@ -29,7 +29,7 @@ Warcraft Recorder is a desktop screen recorder. It watches the WoW combat log fi
 | OS | Support |
 |---|---|
 | Windows | Yes |
-| Mac | No |
+| Mac | In progress, see [docs/macOS.md](docs/macOS.md) |
 | Linux | No |
 
 | Flavour | Support |

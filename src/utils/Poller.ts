@@ -1,9 +1,17 @@
 import EventEmitter from 'events';
-import { ChildProcessWithoutNullStreams, spawn } from 'child_process';
+import { ChildProcessWithoutNullStreams, spawn, execFile } from 'child_process';
 import path from 'path';
 import { app } from 'electron';
 import ConfigService from 'config/ConfigService';
 import { WowProcessEvent } from 'main/types';
+import { isWindows } from 'main/platform';
+
+/**
+ * How often we check the process list on platforms where we poll ourselves
+ * rather than using the rust-ps helper. The Windows helper polls internally
+ * at a similar rate.
+ */
+const UNIX_POLL_INTERVAL_MS = 5000;
 
 /**
  * The Poller singleton periodically checks the list of WoW active
@@ -30,6 +38,11 @@ export default class Poller extends EventEmitter {
    * Spawned child process.
    */
   private child: ChildProcessWithoutNullStreams | undefined;
+
+  /**
+   * Interval handle for the unix poller.
+   */
+  private timer: NodeJS.Timeout | undefined;
 
   /**
    * Singleton instance.
@@ -72,6 +85,11 @@ export default class Poller extends EventEmitter {
       this.child.kill();
       this.child = undefined;
     }
+
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = undefined;
+    }
   }
 
   /**
@@ -81,10 +99,43 @@ export default class Poller extends EventEmitter {
     this.stop();
     console.info('[Poller] Start process poller');
 
+    if (!isWindows) {
+      // No rust-ps helper outside of Windows, poll the process list here.
+      this.timer = setInterval(this.pollUnix, UNIX_POLL_INTERVAL_MS);
+      this.pollUnix();
+      return;
+    }
+
     this.child = spawn(this.binary);
     this.child.stdout.on('data', this.handleStdout);
     this.child.stderr.on('data', this.handleStderr);
   }
+
+  /**
+   * Check the process list for a running WoW. The game lives under a flavour
+   * directory (e.g. _retail_, _classic_, _classic_era_) on all platforms, so
+   * match on that rather than the executable name which differs by flavour
+   * and locale.
+   */
+  private pollUnix = () => {
+    execFile('ps', ['-axo', 'command='], (err, stdout) => {
+      if (err) {
+        console.warn('[Poller] Failed to list processes', String(err));
+        return;
+      }
+
+      // Exclude our own process, which has the log path (and hence the
+      // flavour directory) on its command line in some configurations.
+      const lines = stdout
+        .split('\n')
+        .filter((line) => !line.includes('WarcraftRecorder'));
+
+      const Retail = lines.some((line) => line.includes('/_retail_/'));
+      const Classic = lines.some((line) => line.includes('/_classic_'));
+
+      this.handleProcessState(Retail, Classic);
+    });
+  };
 
   /**
    * Handle stdout data from the child process, this is a tiny blob of JSON
@@ -107,7 +158,15 @@ export default class Poller extends EventEmitter {
     }
 
     const { Retail, Classic } = parsed;
+    this.handleProcessState(Retail, Classic);
+  };
 
+  /**
+   * Given whether a retail and/or classic WoW process is running, work out
+   * if that means we consider WoW to be running given the user's config,
+   * and emit an event if that has changed.
+   */
+  private handleProcessState(Retail: boolean, Classic: boolean) {
     const recordRetail = this.cfg.get<boolean>('recordRetail');
     const recordRetailPtr = this.cfg.get<boolean>('recordRetailPtr');
     const recordClassic = this.cfg.get<boolean>('recordClassic');
@@ -130,7 +189,7 @@ export default class Poller extends EventEmitter {
     }
 
     this.wowRunning = running;
-  };
+  }
 
   /**
    * Handle stderr, we don't expect to ever see this but log it incase
