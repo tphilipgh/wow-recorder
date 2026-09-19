@@ -36,7 +36,7 @@ import { Readable } from 'stream';
 import { ESupportedEncoders } from './obsEnums';
 import Recorder from './Recorder';
 import { exec, execFile } from 'child_process';
-import { isWindows } from './platform';
+import { isWindows, isMac, getWowInstallSearchPaths } from './platform';
 import { specializationById, wowInstallSearchPaths } from './constants';
 import {
   getPlayerName,
@@ -1185,14 +1185,20 @@ const runFirstTimeSetupActionsObs = () => {
 const runFirstTimeSetupActionsNoObs = () => {
   const cfg = ConfigService.getInstance();
 
+  // constants.ts only carries the Windows install locations, because it is
+  // imported by the renderer and so cannot depend on the platform module.
+  const searchPaths = isWindows
+    ? wowInstallSearchPaths
+    : getWowInstallSearchPaths();
+
   const isRetailConfigured =
     cfg.get<boolean>('recordRetail') && cfg.get<string>('retailLogPath');
 
   if (!isRetailConfigured) {
     console.info('[Util] Attempt to first time configure retail installation');
 
-    for (let i = 0; i < wowInstallSearchPaths.length; i++) {
-      const installPath = path.join(wowInstallSearchPaths[i], '_retail_', 'Logs');
+    for (let i = 0; i < searchPaths.length; i++) {
+      const installPath = path.join(searchPaths[i], '_retail_', 'Logs');
       const installExists = existsSync(installPath);
 
       if (installExists) {
@@ -1210,8 +1216,8 @@ const runFirstTimeSetupActionsNoObs = () => {
   if (!isClassicConfigured) {
     console.info('[Util] Attempt to first time configure classic installation');
 
-    for (let i = 0; i < wowInstallSearchPaths.length; i++) {
-      const installPath = path.join(wowInstallSearchPaths[i], '_classic_', 'Logs');
+    for (let i = 0; i < searchPaths.length; i++) {
+      const installPath = path.join(searchPaths[i], '_classic_', 'Logs');
       const installExists = existsSync(installPath);
 
       if (installExists) {
@@ -1221,6 +1227,15 @@ const runFirstTimeSetupActionsNoObs = () => {
         break;
       }
     }
+  }
+
+  if (isMac && !cfg.has('obsCaptureMode')) {
+    // ScreenCaptureKit application capture follows WoW across window and
+    // fullscreen changes, and unlike window capture does not depend on the
+    // game's window being listed. That makes it the better default here,
+    // where on Windows the equivalent default is window capture.
+    console.info('[Util] Defaulting to application capture on macOS');
+    cfg.set('obsCaptureMode', 'game_capture');
   }
 
   if (!cfg.get<string>('storagePath')) {

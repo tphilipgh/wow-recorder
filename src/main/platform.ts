@@ -5,9 +5,15 @@
  * sprinkled through the app with inline process.platform checks.
  */
 
-const isWindows = process.platform === 'win32';
-const isMac = process.platform === 'darwin';
-const isLinux = process.platform === 'linux';
+// This module is for the main process. It must not be imported, directly or
+// transitively, by anything the renderer bundles: the renderer has no Node
+// process global, and touching it there throws at module load and leaves the
+// window blank. The guard keeps that failure mode from being silent.
+const platform = typeof process === 'undefined' ? '' : process.platform;
+
+const isWindows = platform === 'win32';
+const isMac = platform === 'darwin';
+const isLinux = platform === 'linux';
 
 /**
  * Suffix for native executables we ship or shell out to. Empty on unix.

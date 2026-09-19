@@ -1638,6 +1638,16 @@ export default class Recorder extends EventEmitter {
    * Check if the name of the window matches one of the known WoW window names.
    */
   private static windowMatch(item: { name: string; value: string | number }) {
+    if (isMac) {
+      // ScreenCaptureKit names windows "[Application] Title", where the
+      // application is as it appears in the application list, e.g. "Wow".
+      return (
+        item.name.startsWith('[Wow] ') ||
+        item.name.startsWith('[WowClassic] ') ||
+        item.name.startsWith('[World of Warcraft] ')
+      );
+    }
+
     return (
       item.name.startsWith('[Wow.exe]: ') ||
       item.name.startsWith('[WowT.exe]: ') ||
@@ -1664,6 +1674,14 @@ export default class Recorder extends EventEmitter {
     if (!this.captureSource) {
       // This should never happen.
       console.error('[Recorder] No capture source available');
+      return;
+    }
+
+    if (isMac && this.captureMode === CaptureMode.GAME) {
+      // ScreenCaptureKit application capture is already pointed at WoW by
+      // bundle id, and follows the app across window changes, so there is no
+      // window to hunt for.
+      console.info('[Recorder] Application capture needs no window match');
       return;
     }
 
