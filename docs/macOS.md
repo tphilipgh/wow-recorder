@@ -127,13 +127,30 @@ libobs. The macOS obs-deps do not ship an ffmpeg CLI, so this currently
 resolves to a binary that is not there. Install ffmpeg separately for video
 cutting to work.
 
+## Gotchas
+
+**src/main/platform.ts is main process only.** Despite living under
+`src/main`, a lot of that directory is bundled into the renderer too, and
+`src/main/constants.ts` in particular is imported by much of the UI. The
+renderer has no Node `process` global, so importing the platform module from
+anything the renderer reaches throws at module load and the window comes up
+empty. The window is frameless and draws its own title bar, so when that
+happens there is no close button either. Do the platform branch in a file the
+renderer never touches.
+
+**Running the production bundle unpackaged.** `electron ./release/app` resolves
+the preload and the tray icon relative to `release/app`, which only exist there
+once packaged. Use `npm start`, or symlink `release/app/.erb` and
+`release/app/assets` at the repository copies.
+
 ## Known gaps
 
 - **Preview.** libobs-opengl attaches an `NSOpenGLContext` to the view, which
   does not work with layer backed views. Electron's content view is layer
-  backed, so the preview subview explicitly opts out. This needs testing on
-  real hardware; if it renders black, the fallback is a separate child
-  `NSWindow`.
+  backed, so the preview subview explicitly opts out. This is still untested:
+  recording works, but nothing has yet confirmed the preview in the scene
+  editor actually renders. If it comes up black, the fallback is a separate
+  child `NSWindow`.
 - **ffmpeg binary** is not packaged, as above.
 - **Code signing and notarisation** are not configured. Unsigned builds will be
   blocked by Gatekeeper unless the user explicitly allows them.
