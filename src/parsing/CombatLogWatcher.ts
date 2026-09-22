@@ -76,20 +76,13 @@ export default class CombatLogWatcher extends EventEmitter {
         return;
       }
 
-      if (type === 'rename') {
-        // Despite this being a 'change' listener, we can still get
-        // rename events here, see the Node watch API. The rename event
-        // misleadingly fires for both file creation and deletion.
-        //
-        // We reset the position in a file on either, such that a file
-        // recreated with the same name will be read from the start. See
-        // Issue 624.
-        console.info('[CombatLogWatcher] Create or delete event', file);
-        const fullPath = path.join(this.logDir, file);
-        delete this.state[fullPath];
-        return;
-      }
-
+      // Deliberately ignore the event type. Node makes no promise that it is
+      // consistent across platforms, and on macOS a directory watch reports
+      // everything as 'rename', including a plain append to an existing file.
+      // Acting on the type there meant every combat log write was treated as
+      // a create or delete, so the log was never actually read and nothing
+      // recorded automatically. process() works out what happened by looking
+      // at the file instead.
       if (file !== this.current) {
         console.info('[CombatLogWatcher] New active log file', file);
         this.current = file;
@@ -132,13 +125,35 @@ export default class CombatLogWatcher extends EventEmitter {
    */
   private async process(file: string) {
     const fullPath = path.join(this.logDir, file);
-    const currentInfo = await getFileInfo(fullPath);
     const lastInfo = this.state[fullPath];
+    let currentInfo;
+
+    try {
+      currentInfo = await getFileInfo(fullPath);
+    } catch {
+      // The file is gone. Forget it, so that one created later under the same
+      // name is read from the start.
+      console.info('[CombatLogWatcher] Log file no longer exists', file);
+      delete this.state[fullPath];
+      return;
+    }
+
+    // A file recreated under the same name has a new creation time, and a
+    // truncated one has shrunk. Either way what we knew about its length no
+    // longer applies and we start again from the beginning. See Issue 624.
+    const recreated =
+      lastInfo !== undefined &&
+      (currentInfo.birthTime !== lastInfo.birthTime ||
+        currentInfo.size < lastInfo.size);
+
+    if (recreated) {
+      console.info('[CombatLogWatcher] Log file was recreated', file);
+    }
 
     let bytesToRead;
     let startPosition;
 
-    if (lastInfo) {
+    if (lastInfo && !recreated) {
       // Existing file, read from the last known length.
       bytesToRead = currentInfo.size - lastInfo.size;
       startPosition = lastInfo.size;

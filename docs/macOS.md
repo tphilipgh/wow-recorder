@@ -156,6 +156,15 @@ That fallback to software exists because the Windows hardware encoders can
 struggle there, whereas VideoToolbox handles it comfortably and x264 on a Mac
 would not keep up.
 
+**Combat log watching.** `CombatLogWatcher` uses `fs.watch` on the log
+directory. Node makes no promise that the reported event type is consistent
+across platforms, and on macOS a directory watch reports everything as
+`rename`, including a plain append to an existing file. The watcher therefore
+ignores the event type entirely and works out what happened by comparing the
+file's creation time and size against what it last saw. Do not reintroduce a
+branch on the event type: on macOS it makes every combat log write look like a
+file being created or deleted, and nothing is ever parsed or recorded.
+
 **Process detection.** Windows shells out to a bundled `rust-ps.exe`. macOS
 polls `ps` and matches on the flavour directory in the process path, which
 covers `_retail_`, `_classic_` and `_classic_era_`.
