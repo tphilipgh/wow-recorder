@@ -66,6 +66,16 @@ export default class CombatLogWatcher extends EventEmitter {
   private static readonly maxCatchUpBytes = 32 * 1024 * 1024;
 
   /**
+   * Timer for the polling fallback, see startPolling.
+   */
+  private poller?: NodeJS.Timeout;
+
+  /**
+   * How often the polling fallback checks the log files for growth.
+   */
+  private static readonly pollIntervalMs = 1000;
+
+  /**
    * Constructor, unit of timeout is minutes. No events will be emitted until
    * watch() is called.
    */
@@ -97,19 +107,61 @@ export default class CombatLogWatcher extends EventEmitter {
       // a create or delete, so the log was never actually read and nothing
       // recorded automatically. process() works out what happened by looking
       // at the file instead.
-      if (file !== this.current) {
-        console.info('[CombatLogWatcher] New active log file', file);
-        this.current = file;
-      }
-
       this.queue.add(() => this.process(file));
     });
+
+    this.startPolling();
+  }
+
+  /**
+   * Poll the log files for growth.
+   *
+   * The directory watcher cannot be relied on. WoW holds its combat log open
+   * and writes to it continuously, which never changes the directory entry,
+   * and macOS only notifies on the entry. Measured over a two hour session,
+   * the log grew by 363MB and the watcher reported it once. So we also check
+   * the files ourselves on a timer.
+   *
+   * This is cheap, a readdir and a stat per log file, and it is safe to run
+   * alongside the watcher: process() reads from the last known position and
+   * returns immediately when there is nothing new, so whichever notices first
+   * wins and the other does nothing.
+   */
+  private startPolling() {
+    this.poller = setInterval(() => {
+      this.queue.add(async () => {
+        let files: string[];
+
+        try {
+          files = await fs.promises.readdir(this.logDir);
+        } catch (error) {
+          console.warn(
+            '[CombatLogWatcher] Failed to read log directory',
+            String(error),
+          );
+
+          return;
+        }
+
+        const logs = files.filter((f) => f.startsWith('WoWCombatLog'));
+
+        for (const log of logs) {
+          // eslint-disable-next-line no-await-in-loop
+          await this.process(log);
+        }
+      });
+    }, CombatLogWatcher.pollIntervalMs);
   }
 
   /**
    * Stop watching the directory.
    */
   public async unwatch() {
+    if (this.poller) {
+      clearInterval(this.poller);
+      this.poller = undefined;
+    }
+
     if (this.watcher) {
       await this.watcher.close();
     }
@@ -179,8 +231,14 @@ export default class CombatLogWatcher extends EventEmitter {
 
     if (bytesToRead < 1) {
       // The node fs watcher is known to sometimes emit multiple events for
-      // the same write. This lets us drop out early if there is nothing to read.
+      // the same write, and the poller checks every file every tick. This
+      // lets us drop out early if there is nothing to read.
       return;
+    }
+
+    if (file !== this.current) {
+      console.info('[CombatLogWatcher] New active log file', file);
+      this.current = file;
     }
 
     if (bytesToRead > CombatLogWatcher.maxCatchUpBytes) {

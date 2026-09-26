@@ -156,14 +156,25 @@ That fallback to software exists because the Windows hardware encoders can
 struggle there, whereas VideoToolbox handles it comfortably and x264 on a Mac
 would not keep up.
 
-**Combat log watching.** `CombatLogWatcher` uses `fs.watch` on the log
-directory. Node makes no promise that the reported event type is consistent
-across platforms, and on macOS a directory watch reports everything as
-`rename`, including a plain append to an existing file. The watcher therefore
-ignores the event type entirely and works out what happened by comparing the
-file's creation time and size against what it last saw. Do not reintroduce a
-branch on the event type: on macOS it makes every combat log write look like a
-file being created or deleted, and nothing is ever parsed or recorded.
+**Combat log watching.** `fs.watch` on the log directory cannot be relied on
+here, so the watcher also polls. WoW holds its combat log open and writes to it
+continuously, which never changes the directory entry, and macOS only notifies
+on the entry. Measured over a two hour session, the log grew by 363MB and the
+directory watcher reported it exactly once. The watcher is kept, because it is
+instant when it does fire and it catches new log files being created, but the
+poll is what actually drives parsing on macOS.
+
+Note that a test using `appendFileSync` will not reproduce this: that opens and
+closes the file for every write, which does touch the directory entry and does
+notify. Reproducing it needs a persistently open file descriptor, the way the
+game writes.
+
+Two related points. Node makes no promise that the reported event type is
+consistent across platforms, and on macOS a directory watch reports events as
+`rename` even for plain writes, so the watcher ignores the event type and works
+out what happened by comparing the file's creation time and size against what
+it last saw. And because the poll checks every log file every tick, `process()`
+has to be cheap and idempotent when there is nothing new, which it is.
 
 Two related hazards, neither macOS specific but both easy to hit with a large
 combat log. Reading a chunk in one `Buffer.toString()` throws once it passes
