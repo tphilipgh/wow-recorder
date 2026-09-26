@@ -6,6 +6,7 @@ import path from 'path';
 import { getFileInfo, getSortedFiles } from '../main/util';
 import LogLine from './LogLine';
 import AsyncQueue from 'utils/AsyncQueue';
+import { StringDecoder } from 'string_decoder';
 
 /**
  * Setup a bunch of promisified fs calls for convienence.
@@ -50,6 +51,19 @@ export default class CombatLogWatcher extends EventEmitter {
    * log when it changes.
    */
   private current = '';
+
+  /**
+   * How much of the log we read in one go. Kept well under Node's maximum
+   * string length so that decoding a slice can never throw.
+   */
+  private static readonly sliceBytes = 8 * 1024 * 1024;
+
+  /**
+   * The most we will read to catch up after falling behind. Beyond this the
+   * events are old enough that acting on them would do more harm than good,
+   * so we skip to the tail instead.
+   */
+  private static readonly maxCatchUpBytes = 32 * 1024 * 1024;
 
   /**
    * Constructor, unit of timeout is minutes. No events will be emitted until
@@ -169,39 +183,87 @@ export default class CombatLogWatcher extends EventEmitter {
       return;
     }
 
-    await this.parseFileChunk(fullPath, bytesToRead, startPosition);
-    this.state[fullPath] = currentInfo;
+    if (bytesToRead > CombatLogWatcher.maxCatchUpBytes) {
+      // We are a long way behind, typically because the machine slept or the
+      // watcher went quiet while a heavy log was being written. Skip to the
+      // tail rather than replaying hours of it: the events back there are
+      // long stale, and acting on them would start activities in the past.
+      const skipped = bytesToRead - CombatLogWatcher.maxCatchUpBytes;
+
+      console.warn(
+        '[CombatLogWatcher] Skipping',
+        skipped,
+        'bytes of stale log in',
+        file,
+      );
+
+      startPosition = currentInfo.size - CombatLogWatcher.maxCatchUpBytes;
+      bytesToRead = CombatLogWatcher.maxCatchUpBytes;
+    }
+
+    try {
+      await this.parseFileChunk(fullPath, bytesToRead, startPosition);
+    } finally {
+      // Record the position even if parsing threw. Otherwise the next event
+      // recomputes the same read, fails the same way, and the watcher is
+      // wedged for the rest of the session.
+      this.state[fullPath] = currentInfo;
+    }
   }
 
   /**
    * Parse a chunk of the file of length bytes from a specified position.
    */
   private async parseFileChunk(file: string, bytes: number, position: number) {
-    const buffer = Buffer.alloc(bytes);
     const handle = await open(file, 'r');
-    const { bytesRead } = await read(handle, buffer, 0, bytes, position);
-    close(handle);
-
-    if (bytesRead !== bytes) {
-      console.error(
-        '[CombatLogParser] Read attempted for',
-        bytes,
-        'bytes, but read',
-        bytesRead,
-      );
-    }
-
     this.emit('WARCRAFT_RECORDER_LOG_ACTIVITY');
 
-    const lines = buffer
-      .toString('utf-8')
-      .split('\n')
-      .map((s) => s.trim())
-      .filter((s) => s);
+    // Read in slices rather than all at once. Buffer.toString() throws above
+    // Node's maximum string length, a bit over 512MB, and a busy raid night
+    // can leave us further behind than that.
+    const decoder = new StringDecoder('utf-8');
+    let remaining = bytes;
+    let offset = position;
+    let partial = '';
 
-    lines.forEach((line) => {
-      this.handleLogLine(line);
-    });
+    try {
+      while (remaining > 0) {
+        const size = Math.min(remaining, CombatLogWatcher.sliceBytes);
+        const buffer = Buffer.alloc(size);
+        // eslint-disable-next-line no-await-in-loop
+        const { bytesRead } = await read(handle, buffer, 0, size, offset);
+
+        if (bytesRead < 1) {
+          console.error(
+            '[CombatLogParser] Read attempted for',
+            size,
+            'bytes, but read',
+            bytesRead,
+          );
+
+          break;
+        }
+
+        offset += bytesRead;
+        remaining -= bytesRead;
+
+        // The decoder holds back any partial multi byte character, and
+        // partial carries the last line on when it is split across slices.
+        const text = partial + decoder.write(buffer.subarray(0, bytesRead));
+        const lines = text.split('\n');
+        partial = remaining > 0 ? (lines.pop() ?? '') : '';
+
+        lines
+          .map((l) => l.trim())
+          .filter((l) => l)
+          .forEach((line) => this.handleLogLine(line));
+      }
+
+      const last = (partial + decoder.end()).trim();
+      if (last) this.handleLogLine(last);
+    } finally {
+      close(handle);
+    }
   }
 
   /**

@@ -165,6 +165,15 @@ file's creation time and size against what it last saw. Do not reintroduce a
 branch on the event type: on macOS it makes every combat log write look like a
 file being created or deleted, and nothing is ever parsed or recorded.
 
+Two related hazards, neither macOS specific but both easy to hit with a large
+combat log. Reading a chunk in one `Buffer.toString()` throws once it passes
+Node's maximum string length, a little over 512MB, which a heavy raid night can
+exceed if the watcher falls behind, for instance across a sleep. And the read
+position used to be recorded only after a successful parse, so one such failure
+left the watcher retrying the same oversized read forever. Chunks are now read
+in slices, the catch up is capped so stale events are skipped rather than
+replayed hours late, and the position advances even when a parse fails.
+
 **Process detection.** Windows shells out to a bundled `rust-ps.exe`. macOS
 polls `ps` and matches on the flavour directory in the process path, which
 covers `_retail_`, `_classic_` and `_classic_era_`.
